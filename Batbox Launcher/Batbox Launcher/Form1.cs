@@ -30,6 +30,12 @@ namespace BatboxLauncher
         private bool _isFirstStatusCheck = true; // Don't log status on startup
         private Dictionary<string, bool> _lastDeviceStatus = new(); // Track previous device status for log suppression
         private (int count, bool primaryOnLeft)? _lastMonitorState = null; // Track previous monitor state
+        private bool? _lastTrayMonitorOkState = null; // Track tray monitor notification state
+        private bool _launchCompleted = false; // True after successful launch sequence
+        private TopMostNotificationForm? _activeTopNotification;
+        private string _persistentOfflineMessage = string.Empty;
+        private const int NormalPingIntervalMs = 60000;
+        private const int OfflinePingIntervalMs = 5000;
         private const string ServerUrl = "api.batbox.com";
         private WindowSizeEnforcer? _windowEnforcer; // Window size enforcement
 
@@ -47,6 +53,7 @@ namespace BatboxLauncher
 
             // Subscribe to display settings changes for instant updates
             SystemEvents.DisplaySettingsChanged += OnDisplaySettingsChanged;
+            this.Resize += Form1_Resize;
         }
 
         private void Form1_MouseMove(object? sender, MouseEventArgs e)
@@ -301,6 +308,7 @@ namespace BatboxLauncher
         {
             try
             {
+                _launchCompleted = false;
                 SaveConfigFromUI();
                 _cts = new CancellationTokenSource();
                 _isExecuting = false;
@@ -398,6 +406,8 @@ namespace BatboxLauncher
 
         private void MinimizeToTray()
         {
+            _launchCompleted = true;
+
             // Update UI state
             btnStart.Enabled = false;
             btnStart.Text = "GAME RUNNING";
@@ -406,10 +416,25 @@ namespace BatboxLauncher
 
             // Show tray icon and hide window
             notifyIcon.Visible = true;
-            notifyIcon.ShowBalloonTip(2000, "Batbox Launcher", 
-                _config.EnforceWindowSize ? "Running in background. Monitoring window size." : "Running in background.", 
-                ToolTipIcon.Info);
+            _lastTrayMonitorOkState = GetMonitorTrayOkState();
+            ShowTrayBalloon(
+                "Batbox Launcher",
+                _config.EnforceWindowSize ? "Running in background. Monitoring window size." : "Running in background.",
+                ToolTipIcon.Info,
+                3000);
             this.Hide();
+        }
+
+        private void Form1_Resize(object? sender, EventArgs e)
+        {
+            // After a successful launch, minimizing from restored/maximized should always go to tray.
+            if (_launchCompleted && this.WindowState == FormWindowState.Minimized)
+            {
+                notifyIcon.Visible = true;
+                _lastTrayMonitorOkState = GetMonitorTrayOkState();
+                ShowTrayBalloon("Batbox Launcher", "Still running in background.", ToolTipIcon.Info, 2500);
+                this.Hide();
+            }
         }
 
         private void RestoreFromTray()
@@ -418,6 +443,8 @@ namespace BatboxLauncher
             this.WindowState = FormWindowState.Normal;
             this.Activate();
             notifyIcon.Visible = false;
+            _lastTrayMonitorOkState = null;
+            HidePersistentOfflineNotification();
         }
 
         private void NotifyIcon_DoubleClick(object? sender, EventArgs e)
@@ -439,6 +466,7 @@ namespace BatboxLauncher
 
         private void ResetToReadyState()
         {
+            _launchCompleted = false;
             btnStart.Enabled = true;
             btnStart.Text = "▶ Launch Game";
             btnStart.BackColor = Color.FromArgb(180, 60, 60); // Back to red
@@ -615,6 +643,25 @@ namespace BatboxLauncher
             // Check ALL devices - skip only affects launch, not status indicators
             var tasks = _config.Devices.Select(device => PingDeviceAsync(device));
             await Task.WhenAll(tasks);
+
+            // Always log a heartbeat so background checks are visible in logs every minute.
+            int onlineCount = _config.Devices.Count(d => _deviceStatus.TryGetValue(d.Ip, out var status) && status);
+            _log.Info($"Ping cycle complete: {onlineCount}/{_config.Devices.Count} devices online.");
+
+            // If any monitored check is offline, poll aggressively every 5s until recovered.
+            int totalMonitored = _config.Devices.Count;
+            int monitoredOnline = _config.Devices
+                .Count(d => _deviceStatus.TryGetValue(d.Ip, out var status) && status);
+            bool allDevicesOnline = totalMonitored == 0 || monitoredOnline == totalMonitored;
+            bool allHealthy = _monitorCheckPassed && allDevicesOnline;
+            int desiredInterval = allHealthy ? NormalPingIntervalMs : OfflinePingIntervalMs;
+            if (_pingTimer.Interval != desiredInterval)
+            {
+                _pingTimer.Interval = desiredInterval;
+                _log.Info(allHealthy
+                    ? "All checks recovered. Ping interval restored to 60s."
+                    : "Detected offline status. Ping interval set to 5s.");
+            }
 
             // Mark initial check as complete (all pings finished)
             _initialCheckComplete = true;
@@ -1078,6 +1125,16 @@ namespace BatboxLauncher
                 _lastAllGreenState = allGreen;
             }
 
+            // Tray health uses ALL monitored devices (not launch-skip logic),
+            // so we never report "healthy" while monitored devices are offline.
+            int totalMonitored = _config.Devices.Count;
+            int monitoredOnline = _config.Devices
+                .Count(d => _deviceStatus.TryGetValue(d.Ip, out var status) && status);
+            bool trayAllGreen = _monitorCheckPassed && (totalMonitored == 0 || monitoredOnline == totalMonitored);
+
+            // While running in tray, surface health changes as notifications.
+            NotifyTrayHealthChangeIfNeeded(trayAllGreen, monitoredOnline, totalMonitored);
+
             if (allGreen)
             {
                 lblStatus.Text = "● READY";
@@ -1087,6 +1144,167 @@ namespace BatboxLauncher
             {
                 lblStatus.Text = "● READY";
                 lblStatus.ForeColor = Color.FromArgb(150, 150, 150); // Gray
+            }
+        }
+
+        private void NotifyTrayHealthChangeIfNeeded(bool allGreen, int onlineCount, int totalActive)
+        {
+            if (!notifyIcon.Visible)
+                return; // Not in tray mode.
+
+            if (allGreen)
+            {
+                HidePersistentOfflineNotification();
+                return;
+            }
+
+            var lines = new List<string>();
+            lines.Add("Status: OFFLINE");
+            if (!_monitorCheckPassed)
+                lines.Add("• Monitor check failed");
+
+            var offlineDevices = GetOfflineDevices();
+            if (offlineDevices.Count > 0)
+            {
+                foreach (var device in offlineDevices)
+                {
+                    lines.Add($"• {device.Name} ({device.Ip})");
+                }
+            }
+
+            string issueText = lines.Count > 0
+                ? string.Join(Environment.NewLine, lines)
+                : "Connectivity issue detected";
+            ShowPersistentOfflineNotification(issueText);
+        }
+
+        private void ShowTrayBalloon(string title, string message, ToolTipIcon icon, int timeoutMs)
+        {
+            if (!notifyIcon.Visible) return;
+
+            // Keep on-top in-app notifications only (tray balloon disabled by request).
+            ShowTopMostNotification(title, message, icon == ToolTipIcon.Warning, timeoutMs);
+        }
+
+        private void ShowPersistentOfflineNotification(string message)
+        {
+            if (_persistentOfflineMessage == message && _activeTopNotification != null && !_activeTopNotification.IsDisposed)
+                return;
+
+            _persistentOfflineMessage = message;
+            ShowTopMostNotification("Status Alert", message, true, 0);
+        }
+
+        private void HidePersistentOfflineNotification()
+        {
+            _persistentOfflineMessage = string.Empty;
+
+            if (_activeTopNotification == null) return;
+
+            _activeTopNotification.Close();
+            _activeTopNotification.Dispose();
+            _activeTopNotification = null;
+        }
+
+        private List<DeviceConfig> GetOfflineDevices()
+        {
+            return _config.Devices
+                .Where(d => !_deviceStatus.TryGetValue(d.Ip, out var status) || !status)
+                .ToList();
+        }
+
+        private void ShowTopMostNotification(string title, string message, bool warning, int timeoutMs)
+        {
+            if (InvokeRequired)
+            {
+                Invoke(() => ShowTopMostNotification(title, message, warning, timeoutMs));
+                return;
+            }
+
+            try
+            {
+                _activeTopNotification?.Close();
+                _activeTopNotification?.Dispose();
+                _activeTopNotification = new TopMostNotificationForm(title, message, warning, timeoutMs);
+                _activeTopNotification.Show();
+            }
+            catch
+            {
+                // Avoid interrupting monitoring if the UI notification cannot be shown.
+            }
+        }
+
+
+        private void NotifyTrayDeviceChangeIfNeeded(DeviceConfig device, bool statusChanged, bool isReachable)
+        {
+            if (!statusChanged || !_launchCompleted || !notifyIcon.Visible)
+                return;
+
+            if (isReachable)
+            {
+                ShowTrayBalloon(
+                    "Device Recovered",
+                    $"{device.Name} is back online.",
+                    ToolTipIcon.Info,
+                    3000);
+            }
+            else
+            {
+                ShowTrayBalloon(
+                    "Device Disconnected",
+                    $"{device.Name} is offline.",
+                    ToolTipIcon.Warning,
+                    4000);
+            }
+        }
+
+        private bool GetMonitorTrayOkState()
+        {
+            var monitorCount = Screen.AllScreens.Length;
+            bool primaryOnLeft = IsPrimaryMonitorOnLeft();
+            bool countOk = _config.SkipMonitorCheck || monitorCount >= _config.MinMonitors;
+            bool layoutOk = primaryOnLeft || monitorCount <= 1;
+            return countOk && layoutOk;
+        }
+
+        private void NotifyTrayMonitorChangeIfNeeded(bool monitorStateChanged, int monitorCount, int minRequired, bool primaryOnLeft)
+        {
+            if (!monitorStateChanged || !_launchCompleted || !notifyIcon.Visible)
+                return;
+
+            bool monitorOk = (_config.SkipMonitorCheck || monitorCount >= minRequired) && (primaryOnLeft || monitorCount <= 1);
+            if (_lastTrayMonitorOkState == monitorOk)
+                return;
+
+            _lastTrayMonitorOkState = monitorOk;
+
+            if (monitorOk)
+            {
+                ShowTrayBalloon(
+                    "Monitor Recovered",
+                    $"Monitor check is healthy ({monitorCount}/{minRequired}).",
+                    ToolTipIcon.Info,
+                    3000);
+                return;
+            }
+
+            if (!_config.SkipMonitorCheck && monitorCount < minRequired)
+            {
+                ShowTrayBalloon(
+                    "Monitor Disconnected",
+                    $"Detected {monitorCount}/{minRequired} monitors.",
+                    ToolTipIcon.Warning,
+                    4000);
+                return;
+            }
+
+            if (monitorCount > 1 && !primaryOnLeft)
+            {
+                ShowTrayBalloon(
+                    "Monitor Layout Warning",
+                    "Primary monitor is not on the left.",
+                    ToolTipIcon.Warning,
+                    4000);
             }
         }
 
@@ -1139,6 +1357,8 @@ namespace BatboxLauncher
             _serverRetryTimer?.Stop();
             _serverRetryTimer?.Dispose();
             _windowEnforcer?.Dispose();
+            _activeTopNotification?.Close();
+            _activeTopNotification?.Dispose();
             notifyIcon.Visible = false;
             base.OnFormClosing(e);
         }
