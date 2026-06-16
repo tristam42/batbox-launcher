@@ -1,4 +1,6 @@
 using System.ComponentModel;
+using System.Diagnostics;
+using System.IO;
 using System.Net.NetworkInformation;
 using Microsoft.Win32;
 
@@ -11,6 +13,7 @@ namespace BatboxLauncher
         private MonitoringService _monitor = null!;
         private System.Windows.Forms.Timer _timer = null!;
         private System.Windows.Forms.Timer _pingTimer = null!;
+        private System.Windows.Forms.Timer _gameProcessTimer = null!;
         private System.Windows.Forms.Timer? _serverRetryTimer;
         private BindingList<DeviceConfig> _deviceList = null!;
         private CancellationTokenSource? _cts;
@@ -32,10 +35,12 @@ namespace BatboxLauncher
         private (int count, bool primaryOnLeft)? _lastMonitorState = null; // Track previous monitor state
         private bool? _lastTrayMonitorOkState = null; // Track tray monitor notification state
         private bool _launchCompleted = false; // True after successful launch sequence
+        private bool? _lastGameProcessState = null; // Track game process state for log suppression
         private TopMostNotificationForm? _activeTopNotification;
         private string _persistentOfflineMessage = string.Empty;
         private const int NormalPingIntervalMs = 60000;
         private const int OfflinePingIntervalMs = 5000;
+        private const int GameProcessCheckIntervalMs = 30000;
         private const string ServerUrl = "api.batbox.com";
         private WindowSizeEnforcer? _windowEnforcer; // Window size enforcement
 
@@ -92,6 +97,8 @@ namespace BatboxLauncher
             _windowEnforcer = new WindowSizeEnforcer(() => _config, _log);
             _timer = new System.Windows.Forms.Timer { Interval = _config.IntervalSeconds * 1000 };
             _timer.Tick += async (s, e) => await RunMonitoringCycle();
+            _gameProcessTimer = new System.Windows.Forms.Timer { Interval = GameProcessCheckIntervalMs };
+            _gameProcessTimer.Tick += (s, e) => SyncGameRunningState();
         }
 
         private async Task RunMonitoringCycle()
@@ -309,6 +316,7 @@ namespace BatboxLauncher
             try
             {
                 _launchCompleted = false;
+                _lastGameProcessState = null;
                 SaveConfigFromUI();
                 _cts = new CancellationTokenSource();
                 _isExecuting = false;
@@ -627,6 +635,7 @@ namespace BatboxLauncher
             _pingTimer = new System.Windows.Forms.Timer { Interval = 60000 };
             _pingTimer.Tick += async (s, e) => await CheckAllDevicesAsync();
             _pingTimer.Start();
+            _gameProcessTimer.Start();
         }
 
         private async Task CheckAllDevicesAsync()
@@ -643,10 +652,6 @@ namespace BatboxLauncher
             // Check ALL devices - skip only affects launch, not status indicators
             var tasks = _config.Devices.Select(device => PingDeviceAsync(device));
             await Task.WhenAll(tasks);
-
-            // Always log a heartbeat so background checks are visible in logs every minute.
-            int onlineCount = _config.Devices.Count(d => _deviceStatus.TryGetValue(d.Ip, out var status) && status);
-            _log.Info($"Ping cycle complete: {onlineCount}/{_config.Devices.Count} devices online.");
 
             // If any monitored check is offline, poll aggressively every 5s until recovered.
             int totalMonitored = _config.Devices.Count;
@@ -674,6 +679,45 @@ namespace BatboxLauncher
 
             // Update ready status
             UpdateReadyStatus();
+        }
+
+        private void SyncGameRunningState()
+        {
+            bool kioskRunning = IsProcessRunning(_config.KioskExeName);
+            bool baseballRunning = IsProcessRunning(_config.BaseballExeName);
+            bool gameRunning = kioskRunning && baseballRunning;
+
+            if (_lastGameProcessState != gameRunning)
+            {
+                _lastGameProcessState = gameRunning;
+                if (_launchCompleted && !gameRunning)
+                {
+                    _log.Info("Game process closed. Returning launcher to ready state.");
+                }
+            }
+
+            if (!_launchCompleted || gameRunning)
+                return;
+
+            _windowEnforcer?.Stop();
+            HidePersistentOfflineNotification();
+            notifyIcon.Visible = false;
+            if (!this.Visible)
+            {
+                this.Show();
+                this.WindowState = FormWindowState.Normal;
+                this.Activate();
+            }
+            ResetToReadyState();
+        }
+
+        private static bool IsProcessRunning(string exeName)
+        {
+            var processName = Path.GetFileNameWithoutExtension(exeName);
+            if (string.IsNullOrWhiteSpace(processName))
+                return false;
+
+            return Process.GetProcessesByName(processName).Any();
         }
 
         private async Task CheckServerAsync()
@@ -1354,6 +1398,8 @@ namespace BatboxLauncher
             _timer?.Dispose();
             _pingTimer?.Stop();
             _pingTimer?.Dispose();
+            _gameProcessTimer?.Stop();
+            _gameProcessTimer?.Dispose();
             _serverRetryTimer?.Stop();
             _serverRetryTimer?.Dispose();
             _windowEnforcer?.Dispose();
