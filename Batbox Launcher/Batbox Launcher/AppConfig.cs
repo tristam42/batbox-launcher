@@ -18,6 +18,7 @@ namespace BatboxLauncher
         public int IntervalSeconds { get; set; } = 10;
 
         public bool SkipMonitorCheck { get; set; } = false;
+        public bool AutoKillCameraSocketBindings { get; set; } = false;
 
         // Window size enforcement settings
         public bool EnforceWindowSize { get; set; } = false;

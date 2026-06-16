@@ -23,6 +23,7 @@
         private System.Windows.Forms.NumericUpDown numInterval;
         private System.Windows.Forms.CheckBox chkSkipMonitorCheck;
         private System.Windows.Forms.CheckBox chkEnforceWindowSize;
+        private System.Windows.Forms.CheckBox chkAutoKillSocketBindings;
         private System.Windows.Forms.Button btnAdjustWindow;
         private System.Windows.Forms.Label lblDevices;
         private System.Windows.Forms.DataGridView dataGridDevices;
@@ -88,6 +89,7 @@
             lblInterval = new Label();
             chkSkipMonitorCheck = new CheckBox();
             chkEnforceWindowSize = new CheckBox();
+            chkAutoKillSocketBindings = new CheckBox();
             btnAdjustWindow = new Button();
             lblMinMonitors = new Label();
             numInterval = new NumericUpDown();
@@ -261,6 +263,7 @@
             pnlSettings.Controls.Add(lblInterval);
             pnlSettings.Controls.Add(chkSkipMonitorCheck);
             pnlSettings.Controls.Add(chkEnforceWindowSize);
+            pnlSettings.Controls.Add(chkAutoKillSocketBindings);
             pnlSettings.Controls.Add(lblMinMonitors);
             pnlSettings.Controls.Add(numInterval);
             pnlSettings.Controls.Add(lblDevices);
@@ -355,6 +358,17 @@
             chkEnforceWindowSize.Text = "Enforce window size (3840x1080)";
             chkEnforceWindowSize.UseVisualStyleBackColor = true;
             // 
+            // chkAutoKillSocketBindings
+            // 
+            chkAutoKillSocketBindings.AutoSize = true;
+            chkAutoKillSocketBindings.ForeColor = Color.FromArgb(230, 230, 230);
+            chkAutoKillSocketBindings.Location = new Point(498, 88);
+            chkAutoKillSocketBindings.Name = "chkAutoKillSocketBindings";
+            chkAutoKillSocketBindings.Size = new Size(209, 19);
+            chkAutoKillSocketBindings.TabIndex = 18;
+            chkAutoKillSocketBindings.Text = "Auto-kill offline device socket bindings";
+            chkAutoKillSocketBindings.UseVisualStyleBackColor = true;
+            // 
             // btnAdjustWindow
             // 
             btnAdjustWindow.BackColor = Color.FromArgb(60, 60, 100);
@@ -398,7 +412,7 @@
             lblDevices.AutoSize = true;
             lblDevices.Font = new Font("Segoe UI", 9F, FontStyle.Bold);
             lblDevices.ForeColor = Color.FromArgb(230, 230, 230);
-            lblDevices.Location = new Point(14, 64);
+            lblDevices.Location = new Point(14, 84);
             lblDevices.Name = "lblDevices";
             lblDevices.Size = new Size(51, 15);
             lblDevices.TabIndex = 13;
@@ -430,9 +444,9 @@
             dataGridDevices.DefaultCellStyle = dataGridViewCellStyle2;
             dataGridDevices.EnableHeadersVisualStyles = false;
             dataGridDevices.GridColor = Color.FromArgb(60, 60, 60);
-            dataGridDevices.Location = new Point(14, 84);
+            dataGridDevices.Location = new Point(14, 104);
             dataGridDevices.Name = "dataGridDevices";
-            dataGridDevices.Size = new Size(720, 95);
+            dataGridDevices.Size = new Size(720, 75);
             dataGridDevices.TabIndex = 14;
             // 
             // numMinMonitors

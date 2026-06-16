@@ -154,6 +154,7 @@ namespace BatboxLauncher
             numInterval.Value = _config.IntervalSeconds;
             chkSkipMonitorCheck.Checked = _config.SkipMonitorCheck;
             chkEnforceWindowSize.Checked = _config.EnforceWindowSize;
+            chkAutoKillSocketBindings.Checked = _config.AutoKillCameraSocketBindings;
 
             // Setup device grid
             _deviceList = new BindingList<DeviceConfig>(_config.Devices);
@@ -186,6 +187,11 @@ namespace BatboxLauncher
                 _config.EnforceWindowSize = chkEnforceWindowSize.Checked;
                 CheckForNonDefaultConfig();
             };
+            chkAutoKillSocketBindings.CheckedChanged += (s, e) =>
+            {
+                _config.AutoKillCameraSocketBindings = chkAutoKillSocketBindings.Checked;
+                CheckForNonDefaultConfig();
+            };
             dataGridDevices.CellValueChanged += (s, e) => CheckForNonDefaultConfig();
 
             btnStop.Enabled = false;
@@ -201,6 +207,7 @@ namespace BatboxLauncher
                 numInterval.Value != defaults.IntervalSeconds ||
                 chkSkipMonitorCheck.Checked != defaults.SkipMonitorCheck ||
                 chkEnforceWindowSize.Checked != defaults.EnforceWindowSize ||
+                chkAutoKillSocketBindings.Checked != defaults.AutoKillCameraSocketBindings ||
                 HasDeviceChanges(defaults);
 
             btnRestoreDefaults.Visible = isDifferent;
@@ -235,6 +242,7 @@ namespace BatboxLauncher
                 numInterval.Value = defaults.IntervalSeconds;
                 chkSkipMonitorCheck.Checked = defaults.SkipMonitorCheck;
                 chkEnforceWindowSize.Checked = defaults.EnforceWindowSize;
+                chkAutoKillSocketBindings.Checked = defaults.AutoKillCameraSocketBindings;
 
                 _deviceList.Clear();
                 foreach (var device in defaults.Devices)
@@ -1086,6 +1094,7 @@ namespace BatboxLauncher
                 else
                 {
                     _log.Warn($"Pinging {device.Name} ({device.Ip})... OFFLINE!");
+                    _ = Task.Run(() => DiagnoseAndReleaseSocketBindings(device));
                 }
             }
 
@@ -1097,6 +1106,77 @@ namespace BatboxLauncher
             else
             {
                 UpdateDeviceIndicator(device.Ip, isReachable);
+            }
+        }
+
+        private void DiagnoseAndReleaseSocketBindings(DeviceConfig device)
+        {
+            try
+            {
+                var bindings = SocketDiagnostics.GetBindingsForIp(device.Ip);
+                if (bindings.Count == 0)
+                {
+                    _log.Debug($"Socket diagnostics: no active bindings found for {device.Name} ({device.Ip}).");
+                    return;
+                }
+
+                _log.Warn($"Socket diagnostics for {device.Name} ({device.Ip}) - {bindings.Count} binding(s) found:");
+                foreach (var b in bindings)
+                {
+                    _log.Warn($"  {b.Protocol} PID:{b.Pid} ({b.ProcessName}) LocalPort:{b.LocalPort} Local:{b.LocalAddress} Remote:{b.ForeignAddress}");
+                }
+
+                if (!_config.AutoKillCameraSocketBindings)
+                {
+                    _log.Warn($"Auto-kill disabled for {device.Name} ({device.Ip}) - diagnostics only.");
+                    return;
+                }
+
+                var currentPid = Process.GetCurrentProcess().Id;
+                var candidatePids = bindings
+                    .Select(b => b.Pid)
+                    .Where(pid => pid > 4 && pid != currentPid)
+                    .Distinct()
+                    .ToList();
+
+                if (candidatePids.Count == 0)
+                {
+                    _log.Warn($"Socket release skipped for {device.Name} ({device.Ip}): no safe PID candidates.");
+                    return;
+                }
+
+                _log.Warn($"Will kill {candidatePids.Count} process(es) for {device.Name} ({device.Ip}):");
+                foreach (var pid in candidatePids)
+                {
+                    var processName = bindings.FirstOrDefault(b => b.Pid == pid)?.ProcessName ?? "Unknown";
+                    var ports = bindings
+                        .Where(b => b.Pid == pid)
+                        .Select(b => b.LocalPort)
+                        .Distinct()
+                        .OrderBy(p => p)
+                        .Select(p => p.ToString())
+                        .ToList();
+
+                    _log.Warn($"  PID:{pid} ({processName}) Ports:[{string.Join(", ", ports)}]");
+                }
+
+                foreach (var pid in candidatePids)
+                {
+                    try
+                    {
+                        var p = Process.GetProcessById(pid);
+                        p.Kill();
+                        _log.Warn($"Killed PID:{pid} ({p.ProcessName}) for {device.Name} ({device.Ip}).");
+                    }
+                    catch (Exception ex)
+                    {
+                        _log.Warn($"Failed to kill PID:{pid} for {device.Name} ({device.Ip}): {ex.Message}");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _log.Debug($"Socket diagnostics failed for {device.Name} ({device.Ip}): {ex.Message}");
             }
         }
 
@@ -1370,6 +1450,7 @@ namespace BatboxLauncher
             _config.IntervalSeconds = (int)numInterval.Value;
             _config.SkipMonitorCheck = chkSkipMonitorCheck.Checked;
             _config.EnforceWindowSize = chkEnforceWindowSize.Checked;
+            _config.AutoKillCameraSocketBindings = chkAutoKillSocketBindings.Checked;
 
             // Update devices from grid
             _config.Devices = _deviceList.ToList();
