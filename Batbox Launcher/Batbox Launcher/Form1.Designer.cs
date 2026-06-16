@@ -272,7 +272,7 @@
             pnlSettings.Controls.Add(btnSave);
             pnlSettings.Location = new Point(14, 202);
             pnlSettings.Name = "pnlSettings";
-            pnlSettings.Size = new Size(750, 239);
+            pnlSettings.Size = new Size(750, 259);
             pnlSettings.TabIndex = 1;
             pnlSettings.Visible = false;
             // 
@@ -351,7 +351,7 @@
             // 
             chkEnforceWindowSize.AutoSize = true;
             chkEnforceWindowSize.ForeColor = Color.FromArgb(230, 230, 230);
-            chkEnforceWindowSize.Location = new Point(498, 63);
+            chkEnforceWindowSize.Location = new Point(14, 57);
             chkEnforceWindowSize.Name = "chkEnforceWindowSize";
             chkEnforceWindowSize.Size = new Size(197, 19);
             chkEnforceWindowSize.TabIndex = 16;
@@ -362,7 +362,7 @@
             // 
             chkAutoKillSocketBindings.AutoSize = true;
             chkAutoKillSocketBindings.ForeColor = Color.FromArgb(230, 230, 230);
-            chkAutoKillSocketBindings.Location = new Point(498, 88);
+            chkAutoKillSocketBindings.Location = new Point(498, 63);
             chkAutoKillSocketBindings.Name = "chkAutoKillSocketBindings";
             chkAutoKillSocketBindings.Size = new Size(209, 19);
             chkAutoKillSocketBindings.TabIndex = 18;
@@ -446,7 +446,7 @@
             dataGridDevices.GridColor = Color.FromArgb(60, 60, 60);
             dataGridDevices.Location = new Point(14, 104);
             dataGridDevices.Name = "dataGridDevices";
-            dataGridDevices.Size = new Size(720, 75);
+            dataGridDevices.Size = new Size(720, 95);
             dataGridDevices.TabIndex = 14;
             // 
             // numMinMonitors
@@ -469,7 +469,7 @@
             btnSave.FlatStyle = FlatStyle.Flat;
             btnSave.Font = new Font("Segoe UI", 9F, FontStyle.Bold);
             btnSave.ForeColor = Color.White;
-            btnSave.Location = new Point(300, 193);
+            btnSave.Location = new Point(300, 213);
             btnSave.Name = "btnSave";
             btnSave.Size = new Size(130, 30);
             btnSave.TabIndex = 15;

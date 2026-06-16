@@ -20,7 +20,7 @@ namespace BatboxLauncher
         private bool _settingsExpanded = false;
         private bool _isExecuting = false;
         private const int CollapsedHeight = 518;
-        private const int ExpandedHeight = 755;
+        private const int ExpandedHeight = 775;
 
         // Device status tracking
         private Dictionary<string, Panel> _deviceIndicators = new();
@@ -261,8 +261,8 @@ namespace BatboxLauncher
             {
                 // Expand
                 pnlSettings.Visible = true;
-                lblLog.Location = new Point(14, 446);
-                txtLog.Location = new Point(14, 464);
+                lblLog.Location = new Point(14, 466);
+                txtLog.Location = new Point(14, 484);
                 txtLog.Size = new Size(750, 270); // Taller log when expanded
                 this.ClientSize = new Size(780, ExpandedHeight);
                 lblVersion.Location = new Point(700, ExpandedHeight - 20);
