@@ -185,6 +185,7 @@ namespace BatboxLauncher
             chkEnforceWindowSize.CheckedChanged += (s, e) =>
             {
                 _config.EnforceWindowSize = chkEnforceWindowSize.Checked;
+                ApplyWindowEnforcementState();
                 CheckForNonDefaultConfig();
             };
             chkAutoKillSocketBindings.CheckedChanged += (s, e) =>
@@ -391,6 +392,21 @@ namespace BatboxLauncher
             else
             {
                 ResetToReadyState();
+            }
+        }
+
+        private void ApplyWindowEnforcementState()
+        {
+            if (_windowEnforcer == null)
+                return;
+
+            if (_config.EnforceWindowSize)
+            {
+                _windowEnforcer.Start();
+            }
+            else
+            {
+                _windowEnforcer.Stop();
             }
         }
 
