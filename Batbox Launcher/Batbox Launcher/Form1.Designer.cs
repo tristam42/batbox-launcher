@@ -597,7 +597,7 @@
             lblVersion.Name = "lblVersion";
             lblVersion.Size = new Size(60, 13);
             lblVersion.TabIndex = 8;
-            lblVersion.Text = "tristam 2.0";
+            lblVersion.Text = "tristam 3.1";
             // 
             // Form1
             // 

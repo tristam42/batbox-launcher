@@ -50,7 +50,7 @@ A Windows application that manages the launch and monitoring of the Batbox baseb
 - **Event-driven** - Uses Windows hooks (no polling) for instant detection
 - **Monitors both windows:**
   - **Baseball**: Move to (0,0) AND resize to 3840x1080 (spans dual monitors)
-  - **Kiosk**: Move to (0,0) only (keeps its current size)
+  - **Kiosk**: Move to (0,0) AND resize to the primary monitor's resolution
 - **Manual trigger** - "Adjust Window" button to manually apply corrections to both windows
 - **Live enable/disable** - Toggling "Enforce window size" in settings starts/stops monitoring immediately, even while the game is already running (no need to enable it before launch)
 
@@ -115,7 +115,7 @@ Settings are saved to: `%APPDATA%\BatboxLauncher\config.json`
 }
 ```
 
-> **Note:** `TargetWindowWidth` and `TargetWindowHeight` only apply to the Baseball window. The Kiosk window is only repositioned, not resized.
+> **Note:** `TargetWindowWidth` and `TargetWindowHeight` only apply to the Baseball window. The Kiosk window is moved to (0,0) and resized to the primary monitor's resolution.
 >
 > **Note:** `AutoKillCameraSocketBindings` applies to **all** configured devices (not just cameras), despite the legacy key name. Leave it `false` for diagnostics-only behavior.
 
@@ -157,5 +157,5 @@ Settings are saved to: `%APPDATA%\BatboxLauncher\config.json`
 
 ## Version
 
-tristam 2.0
+tristam 3.1
 
